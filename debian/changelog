@@ -1,3 +1,9 @@
+paperwork (0.1.2-3) unstable; urgency=medium
+
+  * debian: change package maintainer.
+
+ -- Paul Liétar <paul@lietar.net>  Fri, 08 Aug 2014 03:40:36 +0000
+
 paperwork (0.1.2-2) unstable; urgency=medium
 
   * debian/copyright: meet copyright format 1.0
