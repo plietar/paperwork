@@ -3,13 +3,13 @@
 
 ## Description
 
-Paperwork is a tool to make easily papers searchable.
+Paperwork is a personal document manager for scanned documents (and PDFs).
 
-The basic idea behind Paperwork is "scan & forget" : You should be able to just
-scan a new document and forget about it until the day you need it again. Let the
-machine do most of the work.
+It's designed to be easy and fast to use. The idea behind Paperwork
+is "scan & forget": You should be able to just scan a new document and
+forget about it until the day you need it again.
 
-Paperwork also supports PDF and images import.
+In other words, let the machine do most of the work for you.
 
 
 ## Screenshots
@@ -47,17 +47,17 @@ Paperwork also supports PDF and images import.
 
 Papers are organized into documents. Each document contains pages.
 
-It uses mainly 3 other pieces of software:
+It uses mainly 4 other pieces of software:
 
-* Sane: To scan the pages
-* Cuneiform or Tesseract: To extract the words from the pages (OCR)
-* GTK/Glade: For the user interface
+* [Sane](http://www.sane-project.org/): To scan the pages
+* [Tesseract](http://code.google.com/p/tesseract-ocr/): To extract the words from the pages (OCR)
+* [GTK](http://www.gtk.org/)/[Glade](https://glade.gnome.org/): For the user interface
+* [Whoosh](https://pypi.python.org/pypi/Whoosh/): To index and search documents, and provide keyword suggestions
 
 Page orientation is automatically guessed using OCR.
 
-Paperwork uses a custom indexation system to search documents and to provide
-keyword suggestions. Since OCR is not perfect, and since some documents don't
-contain useful keywords, Paperwork allows also to put labels on each document.
+Since OCR is not perfect, and since some documents don't contain useful keywords, 
+Paperwork allows also to put labels on each document.
 
 
 ## Licence
@@ -71,6 +71,7 @@ GPLv3 or later. See COPYING.
 * [GNU/Linux Debian](doc/install.debian.markdown)
 * [GNU/Linux Fedora](doc/install.fedora.markdown)
 * [GNU/Linux Gentoo](doc/install.gentoo.markdown)
+* [GNU/Linux Ubuntu](doc/install.debian.markdown)
 * [Development](doc/install.devel.markdown)
 
 ## Archives
@@ -79,6 +80,7 @@ Github can automatically provides .tar.gz and .zip files if required. However,
 they are not required to install Paperwork. They are indicated here as a
 convenience for package maintainers.
 
+* [Paperwork 0.1.3](https://github.com/jflesch/paperwork/archive/0.1.3.tar.gz)
 * [Paperwork 0.1.2](https://github.com/jflesch/paperwork/archive/0.1.2.tar.gz)
 * [Paperwork 0.1.1](https://github.com/jflesch/paperwork/archive/0.1.1.tar.gz)
 * [Paperwork 0.1](https://github.com/jflesch/paperwork/archive/0.1.tar.gz)
