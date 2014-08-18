@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 
 #export DH_VERBOSE=1
+export XDG_RUNTIME_DIR=/tmp
 
 %:
 	dh $@ --with python2 --buildsystem=pybuild
