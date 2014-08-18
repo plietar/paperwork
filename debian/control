@@ -11,7 +11,12 @@ X-Python-Version: >= 2.7
 
 Package: paperwork
 Architecture: all
-Depends: ${python:Depends}, ${misc:Depends}
+Depends: ${python:Depends}, ${misc:Depends},
+         python-gi,
+         gir1.2-gtk-3.0,
+         gir1.2-gladeui-2.0,
+         gir1.2-poppler-0.18,
+         python-gi-cairo
 Recommends: aspell
 Description: Automatically scan and OCR papers
  Paperwork is a tool to make papers searchable.
