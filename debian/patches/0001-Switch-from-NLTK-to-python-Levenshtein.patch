@@ -13,10 +13,10 @@ Signed-off-by: Ross Vandegrift <ross@kallisti.us>
  2 files changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/setup.py b/setup.py
-index 03c1f55..b260626 100755
+index 46f3dca..7ef8942 100755
 --- a/setup.py
 +++ b/setup.py
-@@ -101,7 +101,7 @@ Let the machine do most of the work.
+@@ -102,7 +102,7 @@ Let the machine do most of the work.
        ],
        scripts=['scripts/paperwork'],
        install_requires=[
@@ -26,7 +26,7 @@ index 03c1f55..b260626 100755
            "pycountry",
            # "pycairo",  # doesn't work ?
 diff --git a/src/paperwork/util.py b/src/paperwork/util.py
-index dbd7be1..f84b86c 100644
+index 80740dd..659f083 100644
 --- a/src/paperwork/util.py
 +++ b/src/paperwork/util.py
 @@ -32,7 +32,7 @@ import gettext
