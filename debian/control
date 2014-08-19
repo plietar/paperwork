@@ -3,7 +3,7 @@ Maintainer: Paul Liétar <paul@lietar.net>
 Section: python
 Priority: optional
 Standards-Version: 3.9.5
-Build-Depends: debhelper (>= 9), dh-python, python-all (>= 2.7), python-setuptools
+Build-Depends: debhelper (>= 9), dh-python, python-all (>= 2.7), python-setuptools, imagemagick, librsvg2-bin
 Homepage: https://github.com/jflesch/paperwork
 Vcs-Browser: https://github.com/plietar/paperwork/tree/debian
 Vcs-Git: https://github.com/plietar/paperwork.git -b debian

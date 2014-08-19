@@ -5,3 +5,12 @@ export XDG_RUNTIME_DIR=/tmp
 
 %:
 	dh $@ --with python2 --buildsystem=pybuild
+
+override_dh_auto_build:
+	dh_auto_build
+	convert -resize 32x32 data/paperwork.svg debian/paperwork.xpm
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f debian/paperwork.xpm
+
