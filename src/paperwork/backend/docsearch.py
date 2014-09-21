@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -13,7 +13,6 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Paperwork.  If not, see <http://www.gnu.org/licenses/>.
-
 """
 Contains all the code relative to keyword and document list management list.
 Also everything related to indexation and searching in the documents (+
@@ -23,28 +22,31 @@ suggestions)
 import logging
 import copy
 import datetime
-import multiprocessing
-import os
 import os.path
 import time
-import threading
 
 from gi.repository import GObject
+
+import numpy
+from sklearn.externals import joblib
+from sklearn.linear_model.passive_aggressive import PassiveAggressiveClassifier
+
 import whoosh.fields
 import whoosh.index
 import whoosh.qparser
 import whoosh.query
+import whoosh.sorting
 
-from paperwork.backend import img
+from paperwork.backend.common.doc import BasicDoc
 from paperwork.backend.img.doc import ImgDoc
 from paperwork.backend.img.doc import is_img_doc
 from paperwork.backend.pdf.doc import PdfDoc
 from paperwork.backend.pdf.doc import is_pdf_doc
-from paperwork.util import dummy_progress_cb
-from paperwork.util import MIN_KEYWORD_LEN
-from paperwork.util import mkdir_p
-from paperwork.util import rm_rf
-from paperwork.util import strip_accents
+from paperwork.backend.util import dummy_progress_cb
+from paperwork.backend.util import MIN_KEYWORD_LEN
+from paperwork.backend.util import mkdir_p
+from paperwork.backend.util import rm_rf
+
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +60,9 @@ class DummyDocSearch(object):
     """
     Dummy doc search object.
 
-    Instantiating a DocSearch object takes time (the time to rereard the index).
-    So you can use this object instead during this time as a placeholder
+    Instantiating a DocSearch object takes time (the time to rereard the
+    index). So you can use this object instead during this time as a
+    placeholder
     """
     docs = []
     label_list = []
@@ -78,50 +81,47 @@ class DummyDocSearch(object):
         assert()
 
     @staticmethod
-    def find_suggestions(sentence):
+    def find_suggestions(*args, **kwargs):
         """ Do nothing """
-        sentence = sentence  # to make pylint happy
         return []
 
     @staticmethod
-    def find_documents(sentence):
+    def find_documents(*args, **kwargs):
         """ Do nothing """
-        sentence = sentence  # to make pylint happy
         return []
 
     @staticmethod
-    def add_label(label):
+    def create_label(*args, **kwargs):
         """ Do nothing """
-        label = label  # to make pylint happy
         assert()
 
     @staticmethod
-    def redo_ocr(langs, progress_callback):
+    def add_label(*args, **kwargs):
         """ Do nothing """
-        # to make pylint happy
-        langs = langs
-        progress_callback = progress_callback
         assert()
 
     @staticmethod
-    def update_label(old_label, new_label, cb_progress=None):
+    def remove_label(*args, **kwargs):
         """ Do nothing """
-        # to make pylint happy
-        old_label = old_label
-        new_label = new_label
-        cb_progress = cb_progress
         assert()
 
     @staticmethod
-    def destroy_label(label, cb_progress=None):
+    def update_label(*args, **kwargs):
         """ Do nothing """
-        # to make pylint happy
-        label = label
-        cb_progress = cb_progress
+        assert()
+
+    @staticmethod
+    def destroy_label(*args, **kwargs):
+        """ Do nothing """
         assert()
 
     @staticmethod
     def destroy_index():
+        """ Do nothing """
+        assert()
+
+    @staticmethod
+    def is_hash_in_index(*args, **kwargs):
         """ Do nothing """
         assert()
 
@@ -200,34 +200,36 @@ class DocIndexUpdater(GObject.GObject):
         self.progress_cb = progress_cb
         self.__need_reload = False
 
-    @staticmethod
-    def _update_doc_in_index(index_writer, doc):
+    def _update_doc_in_index(self, index_writer, doc,
+                             fit_label_estimator=True):
         """
         Add/Update a document in the index
         """
+        all_labels = set(self.docsearch.label_list)
+        doc_labels = set(doc.labels)
+        new_labels = doc_labels.difference(all_labels)
+
+        if new_labels != set():
+            for label in new_labels:
+                self.docsearch.label_list += [label]
+            self.docsearch.label_list.sort()
+            if fit_label_estimator:
+                self.docsearch.fit_label_estimator(labels=new_labels)
+
+        if fit_label_estimator:
+            self.docsearch.fit_label_estimator([doc])
         last_mod = datetime.datetime.fromtimestamp(doc.last_mod)
         docid = unicode(doc.docid)
-        txt = u""
-        for page in doc.pages:
-            txt += u"\n".join([unicode(line) for line in page.text])
-        extra_txt = doc.extra_text
-        if extra_txt != u"":
-            txt += extra_txt + u"\n"
-        for label in doc.labels:
-            txt += u" " + unicode(label.name)
-        txt = txt.strip()
-        txt = strip_accents(txt)
-        if txt == u"":
-            # make sure the text field is not empty. Whoosh doesn't like that
-            txt = u"empty"
-        labels = u",".join([strip_accents(unicode(label.name))
-                            for label in doc.labels])
+
+        dochash = doc.get_docfilehash()
+        dochash = (u"%X" % dochash)
 
         index_writer.update_document(
             docid=docid,
             doctype=doc.doctype,
-            content=txt,
-            label=labels,
+            docfilehash=dochash,
+            content=doc.get_index_text(),
+            label=doc.get_index_labels(),
             date=doc.date,
             last_read=last_mod
         )
@@ -241,24 +243,28 @@ class DocIndexUpdater(GObject.GObject):
         query = whoosh.query.Term("docid", docid)
         index_writer.delete_by_query(query)
 
-    def add_doc(self, doc):
+    def add_doc(self, doc, fit_label_estimator=True):
         """
         Add a document to the index
         """
         logger.info("Indexing new doc: %s" % doc)
-        self._update_doc_in_index(self.writer, doc)
+        self._update_doc_in_index(self.writer, doc,
+                                  fit_label_estimator=fit_label_estimator)
         self.__need_reload = True
 
-    def upd_doc(self, doc):
+    def upd_doc(self, doc, fit_label_estimator=True):
         """
         Update a document in the index
         """
         logger.info("Updating modified doc: %s" % doc)
-        self._update_doc_in_index(self.writer, doc)
+        self._update_doc_in_index(self.writer, doc,
+                                  fit_label_estimator=fit_label_estimator)
 
-    def del_doc(self, docid):
+    def del_doc(self, docid, fit_label_estimator=True):
         """
         Delete a document
+        argument fit_label_estimator is not used but is needed for the
+        same interface as upd_doc and add_doc
         """
         logger.info("Removing doc from the index: %s" % docid)
         self._delete_doc_from_index(self.writer, docid)
@@ -268,8 +274,9 @@ class DocIndexUpdater(GObject.GObject):
         """
         Apply the changes to the index
         """
-        logger.info("Index: Commiting changes")
-        self.writer.commit(optimize=self.optimize)
+        logger.info("Index: Commiting changes and saving estimators")
+        self.docsearch.save_label_estimators()
+        self.writer.commit()
         del self.writer
         self.docsearch.reload_searcher()
         if self.__need_reload:
@@ -309,16 +316,26 @@ class DocSearch(object):
     INDEX_STEP_COMMIT = "commit"
     LABEL_STEP_UPDATING = "label updating"
     LABEL_STEP_DESTROYING = "label deletion"
-    OCR_THREADS_POLLING_TIME = 0.5
     WHOOSH_SCHEMA = whoosh.fields.Schema(
+        # static up to date schema
         docid=whoosh.fields.ID(stored=True, unique=True),
         doctype=whoosh.fields.ID(stored=True, unique=False),
+        docfilehash=whoosh.fields.ID(stored=True),
         content=whoosh.fields.TEXT(spelling=True),
         label=whoosh.fields.KEYWORD(stored=True, commas=True,
                                     spelling=True, scorable=True),
-        date=whoosh.fields.DATETIME(stored=True),  # document date
+        date=whoosh.fields.DATETIME(stored=True),
         last_read=whoosh.fields.DATETIME(stored=True),
     )
+    LABEL_ESTIMATOR_TEMPLATE = PassiveAggressiveClassifier(n_iter=50)
+
+    """
+    Label_estimators is a dict with one estimator per label.
+    Each label is predicted with its own estimator (OneVsAll strategy)
+    We cannot use directly OneVsAllClassifier sklearn class because
+    it doesn't support online learning (partial_fit)
+    """
+    label_estimators = {}
 
     def __init__(self, rootdir, callback=dummy_progress_cb):
         """
@@ -361,12 +378,81 @@ class DocSearch(object):
                                                 self.WHOOSH_SCHEMA)
             logger.info("Index '%s' created" % self.indexdir)
 
-        self.__qparser = whoosh.qparser.QueryParser("content",
-                                                    self.index.schema)
         self.__searcher = self.index.searcher()
+
+        class CustomFuzzy(whoosh.qparser.query.FuzzyTerm):
+            def __init__(self, fieldname, text, boost=1.0, maxdist=1,
+                         prefixlength=0, constantscore=True):
+                whoosh.qparser.query.FuzzyTerm.__init__(
+                    self, fieldname, text, boost, maxdist,
+                    prefixlength, constantscore=True
+                )
+
+        facets = [whoosh.sorting.ScoreFacet(),
+                  whoosh.sorting.FieldFacet("date", reverse=True)]
+
+        self.search_param_list = {
+            'full': [
+                {
+                    "query_parser": whoosh.qparser.MultifieldParser(
+                        ["label", "content"], schema=self.index.schema,
+                        termclass=CustomFuzzy),
+                    "sortedby": facets
+                },
+                {
+                    "query_parser": whoosh.qparser.MultifieldParser(
+                        ["label", "content"], schema=self.index.schema,
+                        termclass=whoosh.qparser.query.Prefix),
+                    "sortedby": facets
+                },
+            ],
+            'fast': [
+                {
+                    "query_parser": whoosh.qparser.MultifieldParser(
+                        ["label", "content"], schema=self.index.schema,
+                        termclass=whoosh.query.Term),
+                    "sortedby": facets
+                },
+            ],
+        }
+
         self.check_workdir()
         self.cleanup_rootdir(callback)
         self.reload_index(callback)
+
+        self.label_estimators_dir = os.path.join(
+            base_indexdir, "paperwork", "label_estimators")
+        self.label_estimators_file = os.path.join(
+            self.label_estimators_dir, "label_estimators.jbl")
+        try:
+            logger.info("Opening label_estimators file '%s' ..." %
+                        self.label_estimators_file)
+            (l_estimators, ver) = joblib.load(self.label_estimators_file)
+            if ver != BasicDoc.FEATURES_VER:
+                logger.info("Estimator version is not up to date")
+                self.label_estimators = {}
+            else:
+                self.label_estimators = l_estimators
+
+            # check that the label_estimators are up to date for their class
+            for label_name in self.label_estimators:
+                params = self.label_estimators[label_name].get_params()
+                if params != self.LABEL_ESTIMATOR_TEMPLATE.get_params():
+                    raise IndexError('label_estimators params are not up to'
+                                     + ' date')
+        except Exception, exc:
+            logger.error(("Failed to open label_estimator file '%s', or bad"
+                          + " label_estimator structure") % self.indexdir)
+            logger.error("Exception was: %s" % exc)
+            logger.info("Will create new label_estimators")
+            self.label_estimators = {}
+
+    def save_label_estimators(self):
+        if not os.path.exists(self.label_estimators_dir):
+            os.mkdir(self.label_estimators_dir)
+        joblib.dump((self.label_estimators, BasicDoc.FEATURES_VER),
+                    self.label_estimators_file,
+                    compress=0)
 
     def __must_clean(self, filepath):
         must_clean_cbs = [
@@ -421,10 +507,113 @@ class DocSearch(object):
         """
         return DocIndexUpdater(self, optimize)
 
-    def __inst_doc_from_id(self, docid, doc_type_name=None):
+    def fit_label_estimator(self, docs=None, removed_label=None, labels=None,
+                            callback=dummy_progress_cb):
+        """
+        fit the estimator with the supervised documents
+
+        Arguments:
+            docs --- a collection of documents to fit the estimator with
+                if none, all the docs are used
+            removed_label --- if the fitting is done when a label is removed
+                a doc with no label is not used for learning (fitting), unless
+                the label has been explicitly removed
+            labels --- a collection a labels to operate with. If none, all
+                the labels are used
+        """
+        if docs is None:
+            docs = self.docs
+
+        if labels is None:
+            labels = set(self.label_list)
+            for doc in docs:
+                labels.union(set(doc.labels))
+        else:
+            labels = set(labels)
+
+        label_name_set = set([label.name for label in labels])
+
+        # construct the estimators if not present in the list
+        for label_name in label_name_set:
+            if label_name not in self.label_estimators:
+                self.label_estimators[label_name] = copy.deepcopy(
+                    DocSearch.LABEL_ESTIMATOR_TEMPLATE
+                )
+
+        i = 0
+        total = len(docs)
+        for doc in docs:
+            logger.info("Fitting estimator with doc: %s " % doc)
+            callback(i, total, step=self.LABEL_STEP_UPDATING, doc=doc)
+            time.sleep(0)  # give CPU time to other threads
+            i += 1
+            # fit only with labelled documents
+            if doc.labels:
+                for label_name in label_name_set:
+                    # check for this estimator if the document is labelled
+                    # or not
+                    doc_has_label = 'unlabelled'
+                    for label in doc.labels:
+                        if label.name == label_name:
+                            doc_has_label = 'labelled'
+                            break
+
+                    # fit the estimators with the model class (labelled
+                    # or unlabelled). Don't use True or False for the classes
+                    # as it raises a casting bug in underlying library
+                    l_estimator = self.label_estimators[label_name]
+                    l_estimator.partial_fit(
+                        doc.get_features(), [doc_has_label],
+                        numpy.array(['labelled', 'unlabelled'])
+                    )
+            elif removed_label:
+                l_estimator = self.label_estimators[removed_label.name]
+                l_estimator.partial_fit(
+                    doc.get_features(), ['unlabelled'],
+                    numpy.array(['labelled', 'unlabelled'])
+                )
+
+    def predict_label_list(self, doc, progress_cb=dummy_progress_cb):
+        """
+        return a prediction of label names
+        """
+        if doc.nb_pages <= 0:
+            return []
+
+        # if there is only one label, or not enough document fitted prediction
+        # is not possible
+        if len(self.label_estimators) < 2:
+            return []
+
+        predicted_label_list = []
+        label_names = self.label_estimators.keys()
+
+        for label_name_idx in xrange(0, len(label_names)):
+            progress_cb(label_name_idx, len(label_names))
+
+            label_name = label_names[label_name_idx]
+            features = doc.get_features()
+            # check that the estimator will not throw an error because its
+            # not fitted
+            if self.label_estimators[label_name].coef_ is None:
+                logger.warning("Label estimator '%s' not fitted yet"
+                               % label_name)
+                continue
+            prediction = self.label_estimators[label_name].predict(features)
+            if prediction == 'labelled':
+                predicted_label_list.append(label_name)
+            logger.debug("%s %s %s with decision %s "
+                         % (doc, prediction, label_name,
+                            self.label_estimators[label_name].
+                            decision_function(features)))
+        return predicted_label_list
+
+    def __inst_doc(self, docid, doc_type_name=None):
         """
         Instantiate a document based on its document id.
+        The information are taken from the whoosh index.
         """
+        doc = None
         docpath = os.path.join(self.rootdir, docid)
         if not os.path.exists(docpath):
             return None
@@ -432,24 +621,30 @@ class DocSearch(object):
             # if we already know the doc type name
             for (is_doc_type, doc_type_name_b, doc_type) in DOC_TYPE_LIST:
                 if doc_type_name_b == doc_type_name:
-                    return doc_type(docpath, docid)
-            logger.warn("Warning: unknown doc type found in the index: %s"
-                   % doc_type_name)
+                    doc = doc_type(docpath, docid)
+            if not doc:
+                logger.warning(("Warning: unknown doc type found in the index:"
+                                + " %s") % doc_type_name)
         # otherwise we guess the doc type
-        for (is_doc_type, doc_type_name, doc_type) in DOC_TYPE_LIST:
-            if is_doc_type(docpath):
-                return doc_type(docpath, docid)
-        logger.warn("Warning: unknown doc type for doc %s" % docid)
-        return None
+        if not doc:
+            for (is_doc_type, doc_type_name, doc_type) in DOC_TYPE_LIST:
+                if is_doc_type(docpath):
+                    doc = doc_type(docpath, docid)
+                    break
+        if not doc:
+            logger.warning("Warning: unknown doc type for doc '%s'" % docid)
+
+        return doc
 
     def get_doc_from_docid(self, docid, doc_type_name=None):
         """
         Try to find a document based on its document id. If it hasn't been
         instantiated yet, it will be.
         """
+        assert(docid is not None)
         if docid in self.__docs_by_id:
             return self.__docs_by_id[docid]
-        doc = self.__inst_doc_from_id(docid, doc_type_name)
+        doc = self.__inst_doc(docid, doc_type_name)
         if doc is None:
             return None
         self.__docs_by_id[docid] = doc
@@ -475,13 +670,14 @@ class DocSearch(object):
         for result in results:
             docid = result['docid']
             doctype = result['doctype']
-            doc = self.__inst_doc_from_id(docid, doctype)
+            doc = self.__inst_doc(docid, doctype)
             if doc is None:
                 continue
             progress_cb(progress, nb_results, self.INDEX_STEP_LOADING, doc)
             self.__docs_by_id[docid] = doc
             for label in doc.labels:
                 labels.add(label)
+
             progress += 1
         progress_cb(1, 1, self.INDEX_STEP_LOADING)
 
@@ -500,26 +696,10 @@ class DocSearch(object):
         updater = self.get_index_updater(optimize=False)
         updater.upd_doc(page.doc)
         updater.commit()
-        if not page.doc.docid in self.__docs_by_id:
+        if page.doc.docid not in self.__docs_by_id:
             logger.info("Adding document '%s' to the index" % page.doc.docid)
             assert(page.doc is not None)
             self.__docs_by_id[page.doc.docid] = page.doc
-
-    def __find_documents(self, query):
-        """
-        Find a list of documents based on a whoosh query
-        """
-        docs = []
-        results = self.__searcher.search(query, limit=None)
-        docids = [result['docid'] for result in results]
-        docs = [self.__docs_by_id.get(docid) for docid in docids]
-        try:
-            while True:
-                docs.remove(None)
-        except ValueError:
-            pass
-        assert (not None in docs)
-        return docs
 
     def __get_all_docs(self):
         """
@@ -540,25 +720,56 @@ class DocSearch(object):
             return self.__docs_by_id[docid].pages[page_nb]
         return self.__docs_by_id[obj_id]
 
-    def find_documents(self, sentence):
+    def find_documents(self, sentence, limit=None, must_sort=True,
+                       search_type='full'):
         """
         Returns all the documents matching the given keywords
 
         Arguments:
-            keywords --- keywords (single string)
-
+            sentence --- a sentenced query
         Returns:
-            An array of document id (strings)
+            An array of document (doc objects)
         """
         sentence = sentence.strip()
 
         if sentence == u"":
             return self.docs
 
-        sentence = strip_accents(sentence)
+        result_list_list = []
+        total_results = 0
 
-        query = self.__qparser.parse(sentence)
-        return self.__find_documents(query)
+        for query_parser in self.search_param_list[search_type]:
+            query = query_parser["query_parser"].parse(sentence)
+            if must_sort and "sortedby" in query_parser:
+                result_list = self.__searcher.search(
+                    query, limit=limit, sortedby=query_parser["sortedby"])
+            else:
+                result_list = self.__searcher.search(
+                    query, limit=limit)
+
+            result_list_list.append(result_list)
+            total_results += len(result_list)
+
+            if not must_sort and total_results >= limit:
+                break
+
+        # merging results
+        results = result_list_list[0]
+        for result_intermediate in result_list_list[1:]:
+            results.extend(result_intermediate)
+
+        docs = [self.__docs_by_id.get(result['docid']) for result in results]
+        try:
+            while True:
+                docs.remove(None)
+        except ValueError:
+            pass
+        assert (None not in docs)
+
+        if limit is not None:
+            docs = docs[:limit]
+
+        return docs
 
     def find_suggestions(self, sentence):
         """
@@ -576,22 +787,47 @@ class DocSearch(object):
         final_suggestions = []
 
         corrector = self.__searcher.corrector("content")
+        label_corrector = self.__searcher.corrector("label")
         for keyword_idx in range(0, len(keywords)):
-            keyword = strip_accents(keywords[keyword_idx])
+            keyword = keywords[keyword_idx]
             if (len(keyword) <= MIN_KEYWORD_LEN):
                 continue
-            keyword_suggestions = corrector.suggest(keyword, limit=5)[:]
+            keyword_suggestions = label_corrector.suggest(keyword, limit=2)[:]
+            keyword_suggestions += corrector.suggest(keyword, limit=5)[:]
             for keyword_suggestion in keyword_suggestions:
                 new_suggestion = keywords[:]
                 new_suggestion[keyword_idx] = keyword_suggestion
                 new_suggestion = u" ".join(new_suggestion)
-                if len(self.find_documents(new_suggestion)) <= 0:
+
+                docs = self.find_documents(new_suggestion, limit=1,
+                                           must_sort=False, search_type='fast')
+                if len(docs) <= 0:
                     continue
                 final_suggestions.append(new_suggestion)
         final_suggestions.sort()
         return final_suggestions
 
-    def add_label(self, doc, label):
+    def create_label(self, label, doc=None, callback=dummy_progress_cb):
+        """
+        Create a new label
+
+        Arguments:
+            doc --- first document on which the label must be added (required
+                    for now)
+        """
+        if doc is None:
+            raise NotImplementedError("no yet supported")
+        label = copy.copy(label)
+        assert(label not in self.label_list)
+        self.label_list.append(label)
+        self.label_list.sort()
+        doc.add_label(label)
+        updater = self.get_index_updater(optimize=False)
+        updater.upd_doc(doc)
+        self.fit_label_estimator(labels=[label], callback=callback)
+        updater.commit()
+
+    def add_label(self, doc, label, update_index=True):
         """
         Add a label on a document.
 
@@ -600,29 +836,37 @@ class DocSearch(object):
             doc --- The first document on which this label has been added
         """
         label = copy.copy(label)
-        if not label in self.label_list:
-            self.label_list.append(label)
-            self.label_list.sort()
+        assert(label in self.label_list)
         doc.add_label(label)
-        updater = self.get_index_updater(optimize=False)
-        updater.upd_doc(doc)
-        updater.commit()
+        if update_index:
+            updater = self.get_index_updater(optimize=False)
+            updater.upd_doc(doc)
+        self.fit_label_estimator(docs=[doc], labels=[label])
+        if update_index:
+            updater.commit()
 
-    def remove_label(self, doc, label):
+    def remove_label(self, doc, label, update_index=True):
         """
         Remove a label from a doc. Takes care of updating the index
         """
         doc.remove_label(label)
-        updater = self.get_index_updater(optimize=False)
-        updater.upd_doc(doc)
-        updater.commit()
+        if update_index:
+            updater = self.get_index_updater(optimize=False)
+            updater.upd_doc(doc)
+            self.fit_label_estimator(docs=[doc], removed_label=label)
+            updater.commit()
 
     def update_label(self, old_label, new_label, callback=dummy_progress_cb):
         """
         Replace 'old_label' by 'new_label' on all the documents. Takes care of
         updating the index.
         """
+        assert(old_label)
+        assert(new_label)
         self.label_list.remove(old_label)
+        if old_label.name in self.label_estimators:
+            estimator = self.label_estimators.pop(old_label.name)
+            self.label_estimators[new_label.name] = estimator
         if new_label not in self.label_list:
             self.label_list.append(new_label)
             self.label_list.sort()
@@ -636,6 +880,7 @@ class DocSearch(object):
             if must_reindex:
                 updater.upd_doc(doc)
             current += 1
+
         updater.commit()
 
     def destroy_label(self, label, callback=dummy_progress_cb):
@@ -643,7 +888,9 @@ class DocSearch(object):
         Remove the label 'label' from all the documents. Takes care of updating
         the index.
         """
+        assert(label)
         self.label_list.remove(label)
+        self.label_estimators.pop(label.name)
         current = 0
         docs = self.docs
         total = len(docs)
@@ -659,7 +906,8 @@ class DocSearch(object):
 
     def reload_searcher(self):
         """
-        When the index has been updated, it's safer to re-instantiate the Whoosh
+        When the index has been updated, it's safer to re-instantiate the
+        Whoosh.
         Searcher object used to browse it.
 
         You shouldn't have to call this method yourself.
@@ -668,43 +916,6 @@ class DocSearch(object):
         self.__searcher = self.index.searcher()
         del(searcher)
 
-    def redo_ocr(self, langs, progress_callback=dummy_progress_cb):
-        """
-        Rerun the OCR on *all* the documents. Can be a *really* long process,
-        which is why progress_callback is a mandatory argument.
-
-        Arguments:
-            progress_callback --- See util.dummy_progress_cb for a
-                prototype. The only step returned is "INDEX_STEP_READING"
-            langs --- Languages to use with the spell checker and the OCR tool
-                ( { 'ocr' : 'fra', 'spelling' : 'fr' } )
-        """
-        logger.info("Redoing OCR of all documents ...")
-
-        dlist = self.docs
-        threads = []
-        remaining = dlist[:]
-
-        max_threads = multiprocessing.cpu_count()
-
-        while (len(remaining) > 0 or len(threads) > 0):
-            for thread in threads:
-                if not thread.is_alive():
-                    threads.remove(thread)
-            while (len(threads) < max_threads and len(remaining) > 0):
-                doc = remaining.pop()
-                if not doc.can_edit:
-                    continue
-                thread = threading.Thread(target=doc.redo_ocr,
-                                          args=[langs], name=doc.docid)
-                thread.start()
-                threads.append(thread)
-                progress_callback(len(dlist) - len(remaining),
-                                  len(dlist), self.INDEX_STEP_READING,
-                                  doc)
-            time.sleep(self.OCR_THREADS_POLLING_TIME)
-        logger.info("OCR of all documents done")
-
     def destroy_index(self):
         """
         Destroy the index. Don't use this DocSearch object anymore after this
@@ -712,4 +923,14 @@ class DocSearch(object):
         """
         logger.info("Destroying the index ...")
         rm_rf(self.indexdir)
+        rm_rf(self.label_estimators_dir)
         logger.info("Done")
+
+    def is_hash_in_index(self, filehash):
+        """
+        Check if there is a document using this file hash
+        """
+        filehash = (u"%X" % filehash)
+        results = self.__searcher.search(
+            whoosh.query.Term('docfilehash', filehash))
+        return results

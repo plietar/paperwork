@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@ import logging
 from gi.repository import GLib
 from gi.repository import Gio
 from gi.repository import Poppler
+from PIL import Image
 
 from paperwork.backend.pdf.doc import PdfDoc
 from paperwork.backend.img.doc import ImgDoc
@@ -32,9 +33,11 @@ logger = logging.getLogger(__name__)
 
 
 class SinglePdfImporter(object):
+
     """
     Import a single PDF file as a document
     """
+
     def __init__(self):
         pass
 
@@ -50,22 +53,21 @@ class SinglePdfImporter(object):
         """
         Import the specified PDF file
         """
-        doc = PdfDoc(config.workdir)
+        doc = PdfDoc(config.settings['workdir'].value)
         logger.info("Importing doc '%s' ..." % file_uri)
         doc.import_pdf(config, file_uri)
-        for page in doc.pages:
-            logger.info("Indexing page %s:p%d ..." % (file_uri, page.page_nb))
-            docsearch.index_page(page)
-        return (doc, doc.pages[0])
+        return ([doc], None, True)
 
     def __str__(self):
         return _("Import PDF")
 
 
 class MultiplePdfImporter(object):
+
     """
     Import many PDF files as many documents
     """
+
     def __init__(self):
         pass
 
@@ -91,8 +93,8 @@ class MultiplePdfImporter(object):
     @staticmethod
     def can_import(file_uri, current_doc=None):
         """
-        Check that the specified file looks like a directory containing many pdf
-        files
+        Check that the specified file looks like a directory containing many
+        pdf files
         """
         try:
             parent = Gio.File.parse_name(file_uri)
@@ -111,11 +113,16 @@ class MultiplePdfImporter(object):
         logger.info("Importing PDF from '%s'" % (file_uri))
         parent = Gio.File.parse_name(file_uri)
         doc = None
+        docs = []
 
         idx = 0
 
         for child in MultiplePdfImporter.__get_all_children(parent):
             if not child.get_basename().lower().endswith(".pdf"):
+                continue
+            if docsearch.is_hash_in_index(PdfDoc.hash_file(child.get_path())):
+                logger.info("Document %s already found in the index. Skipped"
+                            % (child.get_path()))
                 continue
             try:
                 # make sure we can import it
@@ -123,25 +130,27 @@ class MultiplePdfImporter(object):
                                                password=None)
             except Exception:
                 continue
-            doc = PdfDoc(config.workdir)
+            doc = PdfDoc(config.settings['workdir'].value)
             doc.import_pdf(config, child.get_uri())
-            for page in doc.pages:
-                docsearch.index_page(page)
+            docs.append(doc)
             idx += 1
-
-        assert(doc is not None)
-        return (doc, doc.pages[0])
+        if doc is None:
+            return (None, None, False)
+        else:
+            return (docs, None, True)
 
     def __str__(self):
         return _("Import each PDF in the folder as a new document")
 
 
 class SingleImageImporter(object):
+
     """
     Import a single image file (in a format supported by PIL). It is either
     added to a document (if one is specified) or as a new document (--> with a
     single page)
     """
+
     def __init__(self):
         pass
 
@@ -162,11 +171,14 @@ class SingleImageImporter(object):
         """
         logger.info("Importing doc '%s'" % (file_uri))
         if current_doc is None:
-            current_doc = ImgDoc(config.workdir)
-        current_doc.import_image(file_uri, config.langs)
-        page = current_doc.pages[current_doc.nb_pages-1]
-        docsearch.index_page(page)
-        return (current_doc, page)
+            current_doc = ImgDoc(config.settings['workdir'].value)
+        new = current_doc.is_new
+        if file_uri[:7] == "file://":
+            # XXX(Jflesch): bad bad bad
+            file_uri = file_uri[7:]
+        img = Image.open(file_uri)
+        page = current_doc.add_page(img, [])
+        return ([current_doc], page, new)
 
     def __str__(self):
         return _("Append the image to the current document")

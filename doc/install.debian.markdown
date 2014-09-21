@@ -13,11 +13,30 @@ Pillow may conflict with the package python-imaging (aka PIL).
 
     $ sudo apt-get install python-pip python-setuptools python-dev
 
-    # Pillow build dependencies :
+    # Pillow build dependencies
     $ sudo apt-get install libjpeg-dev zlib1g-dev
+
+    # Scipy dependencies
+    $ sudo apt-get install libblas-dev libatlas-dev liblapack-dev gfortran
+
+    # Sciki-lean dependency
+    $ sudo apt-get install g++
+
+    # Scikit-image dependency
+    $ sudo apt-get install cython
+
+    # PyEnchant dependency
+    $ sudo apt-get install libenchant-dev
 
 
 ## Runtime dependencies
+
+For some reason,
+[setuptools doesn't work well with Numpy](https://github.com/numpy/numpy/issues/2434),
+so you will have to install some dependencies yourself with python-pip:
+
+    $ sudo apt-get install python-pip
+    $ sudo pip install numpy scikit-learn
 
 Optional:
 Spell checking is used to improve page orientation detection, so:

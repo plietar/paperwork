@@ -1,5 +1,13 @@
-2014/07/08 - 0.1.3:
-- Fix scanner support : don't try to set scanner options that are not active
+0.1 -> 0.2:
+* Improved search : whoosh.FuzzyTerm is now used
+* Label look has been improved
+* Menubar has been removed and replaced by an application menu
+* Label prediction : when a new document is scanned, predicted labels are
+  automatically set on it
+* Pages are not displayed separately anymore
+* New settings: scan source, number of orientations to try, OCR can be
+  disabled
+* Scans are displayed in real time
 
 
 2013/12/29 - 0.1.2:

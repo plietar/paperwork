@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -14,14 +14,17 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Paperwork.  If not, see <http://www.gnu.org/licenses/>.
 
-import codecs
 from copy import copy
 import PIL.Image
-import os
 import os.path
-import re
 
-from paperwork.util import split_words
+import numpy
+from scipy import sparse
+from scipy.sparse.csr import csr_matrix
+from skimage import feature
+from sklearn.preprocessing import normalize
+
+from paperwork.backend.util import split_words
 
 
 class PageExporter(object):
@@ -91,11 +94,21 @@ class PageExporter(object):
 
 
 class BasicPage(object):
-    SCAN_STEP_SCAN = "scanning"
-    SCAN_STEP_OCR = "ocr"
+
+    # The width of the thumbnails is defined arbitrarily
+    DEFAULT_THUMB_WIDTH = 150
+    # The height of the thumbnails is defined based on the A4 format
+    # proportions
+    DEFAULT_THUMB_HEIGHT = 212
+
+    EXT_THUMB = "thumb.jpg"
+    FILE_PREFIX = "paper."
 
     boxes = []
     img = None
+    size = (0, 0)
+
+    can_edit = False
 
     def __init__(self, doc, page_nb):
         """
@@ -118,14 +131,51 @@ class BasicPage(object):
 
     pageid = property(__get_pageid)
 
-    def _get_thumbnail(self, width):
-        raise NotImplementedError()
+    def _get_filepath(self, ext):
+        """
+        Returns a file path relative to this page
+        """
+        filename = ("%s%d.%s" % (self.FILE_PREFIX, self.page_nb + 1, ext))
+        return os.path.join(self.doc.path, filename)
 
-    def get_thumbnail(self, width):
-        if (width == self.__thumbnail_cache[1]):
+    def __make_thumbnail(self, width, height):
+        """
+        Create the page's thumbnail
+        """
+        img = self.img
+        (w, h) = img.size
+        factor = max(
+            (float(w) / width),
+            (float(h) / height)
+        )
+        w /= factor
+        h /= factor
+        img = img.resize((int(w), int(h)), PIL.Image.ANTIALIAS)
+        return img
+
+    def _get_thumb_path(self):
+        return self._get_filepath(self.EXT_THUMB)
+
+    def get_thumbnail(self, width, height):
+        """
+        thumbnail with a memory cache
+        """
+        if ((width, height) == self.__thumbnail_cache[1]):
             return self.__thumbnail_cache[0]
-        thumbnail = self._get_thumbnail(width)
-        self.__thumbnail_cache = (thumbnail, width)
+
+        # get from the file
+        try:
+            if (os.path.getmtime(self.get_doc_file_path()) <
+                    os.path.getmtime(self._get_thumb_path())):
+                thumbnail = PIL.Image.open(self._get_thumb_path())
+            else:
+                thumbnail = self.__make_thumbnail(width, height)
+                thumbnail.save(self._get_thumb_path())
+        except:
+            thumbnail = self.__make_thumbnail(width, height)
+            thumbnail.save(self._get_thumb_path())
+
+        self.__thumbnail_cache = (thumbnail, (width, height))
         return thumbnail
 
     def drop_cache(self):
@@ -140,44 +190,11 @@ class BasicPage(object):
 
     text = property(__get_text)
 
-    def print_page_cb(self, print_op, print_context):
-        raise NotImplementedError()
-
-    def redo_ocr(self, langs):
+    def print_page_cb(self, print_op, print_context, keep_refs={}):
         raise NotImplementedError()
 
     def destroy(self):
         raise NotImplementedError()
-
-    def get_boxes(self, sentence):
-        """
-        Get all the boxes corresponding the given sentence
-
-        Arguments:
-            sentence --- can be string (will be splited), or an array of
-                strings
-        Returns:
-            an array of boxes (see pyocr boxes)
-        """
-        if isinstance(sentence, unicode):
-            keywords = split_words(sentence)
-        else:
-            assert(isinstance(sentence, list))
-            keywords = sentence
-
-        output = []
-        for keyword in keywords:
-            for line in self.boxes:
-                for box in line.word_boxes:
-                    if keyword in box.content:
-                        output.append(box)
-                        continue
-                    # unfold generator output
-                    words = [x for x in split_words(box.content)]
-                    if keyword in words:
-                        output.append(box)
-                        continue
-        return output
 
     def get_export_formats(self):
         return self.__prototype_exporters.keys()
@@ -221,6 +238,49 @@ class BasicPage(object):
 
     keywords = property(__get_keywords)
 
+    def extract_features(self):
+        """
+        compute image data to present features for the estimators
+        """
+        image = self.get_thumbnail(BasicPage.DEFAULT_THUMB_WIDTH,
+                                   BasicPage.DEFAULT_THUMB_HEIGHT)
+        image = image.convert('RGB')
+
+        # use the first two channels of color histogram
+        histogram = image.histogram()
+        separated_histo = []
+        separated_histo.append(histogram[0:256])
+        separated_histo.append(histogram[256:256*2])
+        # use the grayscale histogram with a weight of 2
+        separated_histo.append([i*2 for i in image.convert('L').histogram()])
+        separated_flat_histo = []
+        for histo in separated_histo:
+            # flatten histograms
+            window_len = 4
+            s = numpy.r_[
+                histo[window_len-1:0:-1],
+                histo,
+                histo[-1:-window_len:-1]
+            ]
+            w = numpy.ones(window_len, 'd')
+            separated_flat_histo.append(csr_matrix(
+                numpy.convolve(w/w.sum(), s, mode='valid'))
+                .astype(numpy.float64))
+        flat_histo = normalize(sparse.hstack(separated_flat_histo), norm='l1')
+
+        # hog feature extraction
+        # must resize to multiple of 8 because of skimage hog bug
+        hog_features = feature.hog(numpy.array(image.resize((144, 144))
+                                               .convert('L')),
+                                   normalise=False)
+        hog_features = csr_matrix(hog_features).astype(numpy.float64)
+        hog_features = normalize(hog_features, norm='l1')
+
+        # concatenate
+        features = sparse.hstack([flat_histo, hog_features * 3])
+
+        return features
+
 
 class DummyPage(object):
     page_nb = -1
@@ -232,14 +292,14 @@ class DummyPage(object):
     def __init__(self, parent_doc):
         self.doc = parent_doc
 
+    def _get_filepath(self, ext):
+        raise NotImplementedError()
+
     def get_thumbnail(self, width):
         raise NotImplementedError()
 
     def print_page_cb(self, print_op, print_context):
         raise NotImplementedError()
-
-    def redo_ocr(self, langs):
-        pass
 
     def destroy(self):
         pass

@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2013  Jerome Flesch
+#    Copyright (C) 2013-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -14,21 +14,25 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Paperwork.  If not, see <http://www.gnu.org/licenses/>.
 
-import PIL.Image
+import os
+
 import gettext
 import logging
 
-from gi.repository import GObject
+from gi.repository import GLib
 
-from paperwork.frontend.img_cutting import ImgGripHandler
-from paperwork.util import image2pixbuf
-from paperwork.util import load_uifile
+from paperwork.frontend.util import load_uifile
+from paperwork.frontend.util.canvas import Canvas
+from paperwork.frontend.util.img import image2pixbuf
+from paperwork.frontend.util.imgcutting import ImgGripHandler
+
 
 _ = gettext.gettext
 logger = logging.getLogger(__name__)
 
 
 class PageEditionAction(object):
+
     def __init__(self):
         pass
 
@@ -43,6 +47,7 @@ class PageEditionAction(object):
 
 
 class PageRotationAction(PageEditionAction):
+
     def __init__(self, angle):
         PageEditionAction.__init__(self)
         self.angle = angle
@@ -63,6 +68,7 @@ class PageRotationAction(PageEditionAction):
 
 
 class PageCuttingAction(PageEditionAction):
+
     def __init__(self, cut):
         """
         Arguments:
@@ -92,19 +98,26 @@ class PageCuttingAction(PageEditionAction):
 
 
 class PageEditingDialog(object):
+
     def __init__(self, main_window, page):
         self.page = page
 
-        widget_tree = load_uifile("pageeditingdialog.glade")
+        widget_tree = load_uifile(
+            os.path.join("pageeditor", "pageeditor.glade"))
 
         self.__dialog = widget_tree.get_object("dialogPageEditing")
         self.__dialog.set_transient_for(main_window.window)
 
+        img_scrollbars = widget_tree.get_object("scrolledwindowOriginal")
+        img_canvas = Canvas(img_scrollbars)
+        img_canvas.set_visible(True)
+        img_scrollbars.add(img_canvas)
+
         self.__original_img_widgets = {
-            'img': widget_tree.get_object("imageOriginal"),
-            'scrolledwindow': widget_tree.get_object("scrolledwindowOriginal"),
+            'img': img_canvas,
+            'scrolledwindow': img_scrollbars,
             'eventbox': widget_tree.get_object("eventboxOriginal"),
-            'viewport': widget_tree.get_object("viewportOriginal")
+            'zoom': widget_tree.get_object("adjustmentZoom"),
         }
         self.__result_img_widget = widget_tree.get_object("imageResult")
         self.__buttons = {
@@ -119,51 +132,37 @@ class PageEditingDialog(object):
 
         self.__cut_grips = None
 
-        self.__original_img_widgets['viewport'].connect(
+        self.__original_img_widgets['scrolledwindow'].connect(
             "size-allocate",
-            lambda widget, size: GObject.idle_add(self.__on_size_allocated_cb))
+            lambda widget, size: GLib.idle_add(self.__on_size_allocate)
+        )
         self.__buttons['cutting'].connect(
             "toggled",
-            lambda widget: GObject.idle_add(
+            lambda widget: GLib.idle_add(
                 self.__on_cutting_button_toggled_cb))
         self.__buttons['rotate']['clockwise'][0].connect(
             "clicked",
             lambda widget:
-            GObject.idle_add(self.__on_rotate_activated_cb, widget))
+            GLib.idle_add(self.__on_rotate_activated_cb, widget))
         self.__buttons['rotate']['counter_clockwise'][0].connect(
             "clicked",
             lambda widget:
-            GObject.idle_add(self.__on_rotate_activated_cb, widget))
+            GLib.idle_add(self.__on_rotate_activated_cb, widget))
 
         self.page = page
-        self.imgs = {
-            'orig': (1.0, self.page.img)
-        }
+        self.img = self.page.img
 
         self.__changes = []
 
-    def __on_size_allocated_cb(self):
-        if not self.__cut_grips is None:
+    def __on_size_allocate(self):
+        if self.__cut_grips is not None:
             return
-        (a, b, img_w, img_h) = self.imgs['orig'][1].getbbox()
-        orig_alloc = self.__original_img_widgets['viewport'].get_allocation()
-        (orig_alloc_w, orig_alloc_h) = (orig_alloc.width, orig_alloc.height)
-        factor_w = (float(orig_alloc_w) / img_w)
-        factor_h = (float(orig_alloc_h) / img_h)
-        factor = min(factor_w, factor_h)
-        if factor > 1.0:
-            factor = 1.0
-        target_size = (int(factor * img_w), int(factor * img_h))
-        copy = self.imgs['orig'][1].copy()
-        self.imgs['resized'] = (factor,
-                                copy.resize(target_size, PIL.Image.BILINEAR))
         self.__cut_grips = ImgGripHandler(
-            [self.imgs['resized'], self.imgs['orig']],
-            self.__original_img_widgets['scrolledwindow'],
-            self.__original_img_widgets['eventbox'],
-            self.__original_img_widgets['img'])
+            self.img, self.__original_img_widgets['img'],
+            self.__original_img_widgets['zoom'])
         self.__cut_grips.visible = False
         self.__cut_grips.connect("grip-moved", self.__on_grip_moved_cb)
+        self.__cut_grips.connect("zoom-changed", self.__on_zoom_changed_cb)
 
         self.__redraw_result()
 
@@ -181,6 +180,9 @@ class PageEditingDialog(object):
         action.add_to_action_queue(self.__changes)
         self.__redraw_result()
 
+    def __on_zoom_changed_cb(self, griphandler):
+        self.__redraw_result()
+
     def __on_rotate_activated_cb(self, widget):
         for (button, angle) in self.__buttons['rotate'].values():
             if button == widget:
@@ -192,7 +194,12 @@ class PageEditingDialog(object):
         self.__redraw_result()
 
     def __redraw_result(self):
-        (scale, img) = self.imgs['resized']
+        scale = self.__cut_grips.scale
+        img = self.img
+        img = img.resize((
+            int(img.size[0] * scale),
+            int(img.size[1] * scale)
+        ))
         for action in self.__changes:
             img = action.do(img, scale)
         img = image2pixbuf(img)

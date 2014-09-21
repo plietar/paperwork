@@ -16,6 +16,33 @@ Pillow may conflict with the package python-imaging (aka PIL).
     # Pillow build dependencies :
     $ sudo yum install libjpeg-turbo-devel zlib-devel
 
+    # Scipy dependencies
+    $ sudo yum install blas-devel atlas-devel lapack-devel gcc-fortran
+
+    # Sciki-lean dependency
+    $ sudo yum install gcc-c++
+
+    # Scikit-image dependency
+    $ sudo yum install Cython
+
+    # PyEnchant dependency
+    $ sudo yum install enchant-devel
+
+
+## Runtime dependencies
+
+For some reason,
+[setuptools doesn't work well with Numpy](https://github.com/numpy/numpy/issues/2434),
+so you will have to install some dependencies yourself with python-pip:
+
+    $ sudo yum install python-pip
+    $ sudo pip install numpy scikit-learn
+
+Optional:
+Spell checking is used to improve page orientation detection, so:
+
+    $ sudo apt-get install aspell-<your language>
+
 
 ## System-wide installation
 
@@ -24,14 +51,6 @@ Pillow may conflict with the package python-imaging (aka PIL).
     # dependencies are required.
     # IMPORTANT: the extra dependencies list may be drown in the output. You
     # may miss it.
-
-
-## Runtime dependencies
-
-Optional:
-Spell checking is used to improve page orientation detection, so:
-
-    $ sudo apt-get install aspell-<your language>
 
 
 ## Running Paperwork

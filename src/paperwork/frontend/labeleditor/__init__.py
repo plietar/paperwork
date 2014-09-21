@@ -1,10 +1,28 @@
+#    Paperwork - Using OCR to grep dead trees the easy way
+#    Copyright (C) 2014  Jerome Flesch
+#
+#    Paperwork is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    Paperwork is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Paperwork.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+
 import gettext
 import logging
 
 from gi.repository import Gtk
 
 from paperwork.backend.labels import Label
-from paperwork.util import load_uifile
+from paperwork.frontend.util import load_uifile
 
 
 _ = gettext.gettext
@@ -12,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class LabelEditor(object):
+
     """
     Dialog to create / edit labels
     """
@@ -27,7 +46,8 @@ class LabelEditor(object):
         """
         Open the edit dialog, and update the label according to user changes
         """
-        widget_tree = load_uifile("labeledit.glade")
+        widget_tree = load_uifile(
+            os.path.join("labeleditor", "labeleditor.glade"))
 
         dialog = widget_tree.get_object("dialogLabelEditor")
         name_entry = widget_tree.get_object("entryLabelName")
@@ -65,5 +85,5 @@ class LabelEditor(object):
         txt = unicode(label_entry.get_text(), encoding='utf-8').strip()
         ok_enabled = True
         ok_enabled = ok_enabled and txt != u""
-        ok_enabled = ok_enabled and not u"," in txt
+        ok_enabled = ok_enabled and u"," not in txt
         self.__ok_button.set_sensitive(ok_enabled)

@@ -1,12 +1,28 @@
+#    Paperwork - Using OCR to grep dead trees the easy way
+#    Copyright (C) 2014  Jerome Flesch
+#
+#    Paperwork is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    Paperwork is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Paperwork.  If not, see <http://www.gnu.org/licenses/>.
+
 import heapq
 import logging
-import os
 import itertools
 import sys
 import threading
 import traceback
 import time
 
+from gi.repository import GLib
 from gi.repository import GObject
 
 """
@@ -22,11 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 class JobException(Exception):
+
     def __init__(self, reason):
         Exception.__init__(self, reason)
 
 
 class JobFactory(object):
+
     def __init__(self, name):
         self.name = name
         self.id_generator = itertools.count()
@@ -39,7 +57,8 @@ class JobFactory(object):
         return self is other
 
 
-class Job(GObject.GObject):  # inherits from GObject so it can send signals
+class Job(GObject.GObject):  # inherits from GObject so it can send signalsa
+
     MAX_TIME_FOR_UNSTOPPABLE_JOB = 0.5  # secs
     MAX_TIME_TO_STOP = 0.5  # secs
 
@@ -105,14 +124,15 @@ class Job(GObject.GObject):  # inherits from GObject so it can send signals
 
 
 class JobScheduler(object):
+
     def __init__(self, name):
         self.name = name
         self._thread = None
         self.running = False
 
         # _job_queue_cond.acquire()/release() protect the job queue
-        # _job_queue_cond.notify_all() is called each time the queue is modified
-        #  (except on cancel())
+        # _job_queue_cond.notify_all() is called each time the queue is
+        # modified (except on cancel())
         self._job_queue_cond = threading.Condition()
         self._job_queue = []
         self._active_job = None
@@ -178,7 +198,7 @@ class JobScheduler(object):
 
             diff = stop - start
             if (self._active_job.can_stop
-                or diff <= Job.MAX_TIME_FOR_UNSTOPPABLE_JOB):
+                    or diff <= Job.MAX_TIME_FOR_UNSTOPPABLE_JOB):
                 logger.debug("Job %s took %dms"
                              % (str(self._active_job), diff * 1000))
             else:
@@ -246,7 +266,7 @@ class JobScheduler(object):
                     # the active job may have already been re-queued
                     # previously. In which case we don't want to requeue
                     # it again
-                    if not active in self._job_queue:
+                    if active not in self._job_queue:
                         heapq.heappush(self._job_queue,
                                        (-1 * active.priority,
                                         next(self._job_idx_generator),
@@ -313,6 +333,7 @@ class JobScheduler(object):
 
 
 class JobProgressUpdater(Job):
+
     """
     Update a progress bar a predefined timing.
     """
@@ -341,7 +362,7 @@ class JobProgressUpdater(Job):
             val /= self.NB_UPDATES
             val += self.value_min
 
-            GObject.idle_add(self.progressbar.set_fraction, val)
+            GLib.idle_add(self.progressbar.set_fraction, val)
             self._wait(self.total_time / self.NB_UPDATES, force=True)
 
     def stop(self, will_resume=False):
@@ -353,6 +374,7 @@ GObject.type_register(JobProgressUpdater)
 
 
 class JobFactoryProgressUpdater(JobFactory):
+
     def __init__(self, progress_bar):
         JobFactory.__init__(self, "ProgressUpdater")
         self.progress_bar = progress_bar

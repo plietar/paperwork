@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -16,15 +16,18 @@
 
 import logging
 
+from gi.repository import Gio
 from gi.repository import Gtk
 
 logger = logging.getLogger(__name__)
 
 
 class SimpleAction(object):
+
     """
     Template for all the actions started by buttons
     """
+
     def __init__(self, name):
         self.name = name
         self.__signal_handlers = [
@@ -41,6 +44,7 @@ class SimpleAction(object):
             (Gtk.ComboBox, "changed", self.on_combobox_changed_cb, -1),
             (Gtk.CellRenderer, "edited", self.on_cell_edited_cb, -1),
             (Gtk.Range, "value-changed", self.on_value_changed_cb, -1),
+            (Gio.Action, "activate", self.on_action_activated_cb, -1),
         ]
         self.enabled = True
 
@@ -80,6 +84,9 @@ class SimpleAction(object):
         return self.__do()
 
     def on_value_changed_cb(self, widget_range=None):
+        return self.__do()
+
+    def on_action_activated_cb(self, action, parameter):
         return self.__do()
 
     def connect(self, buttons):

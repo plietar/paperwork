@@ -36,7 +36,9 @@ if python_ver[0] != "2" or python_ver[1] != "7":
 
 
 setup(name="paperwork",
-      version="0.1.3",
+      # if you change the version, don't forget to change it also in
+      # src/paperwork/frontend/aboutdialog/aboutdialog.glade
+      version="0.2",
       description="Grep for dead trees",
       long_description="""
 Paperwork is a tool to make papers searchable.
@@ -47,9 +49,9 @@ Let the machine do most of the work.
 """,
       keywords="scanner ocr gui",
       url="https://github.com/jflesch/paperwork",
-      download_url="https://github.com/jflesch/paperwork/archive/stable.tar.gz",
+      download_url="https://github.com/jflesch/paperwork/archive/unstable.tar.gz",
       classifiers=[
-          "Development Status :: 5 - Production/Stable",
+          "Development Status :: 3 - Alpha",
           "Environment :: X11 Applications :: GTK",
           "Intended Audience :: End Users/Desktop",
           "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
@@ -66,6 +68,16 @@ Let the machine do most of the work.
       packages=[
           'paperwork',
           'paperwork.frontend',
+          'paperwork.frontend.aboutdialog',
+          'paperwork.frontend.doceditdialog',
+          'paperwork.frontend.import',
+          'paperwork.frontend.labeleditor',
+          'paperwork.frontend.mainwindow',
+          'paperwork.frontend.multiscan',
+          'paperwork.frontend.pageeditor',
+          'paperwork.frontend.settingswindow',
+          'paperwork.frontend.util',
+          'paperwork.frontend.util.canvas',
           'paperwork.backend',
           'paperwork.backend.common',
           'paperwork.backend.pdf',
@@ -74,23 +86,81 @@ Let the machine do most of the work.
       package_dir={
           'paperwork': 'src/paperwork',
           'paperwork.frontend': 'src/paperwork/frontend',
+          'paperwork.frontend.aboutdialog': 'src/paperwork/frontend/aboutdialog',
+          'paperwork.frontend.doceditdialog':
+              'src/paperwork/frontend/doceditdialog',
+          'paperwork.frontend.import': 'src/paperwork/frontend/import',
+          'paperwork.frontend.labeleditor': 'src/paperwork/frontend/labeleditor',
+          'paperwork.frontend.mainwindow': 'src/paperwork/frontend/mainwindow',
+          'paperwork.frontend.multiscan': 'src/paperwork/frontend/multiscan',
+          'paperwork.frontend.pageeditor': 'src/paperwork/frontend/pageeditor',
+          'paperwork.frontend.settingswindow':
+              'src/paperwork/frontend/settingswindow',
+          'paperwork.frontend.util': 'src/paperwork/frontend/util',
+          'paperwork.frontend.util.canvas':
+            'src/paperwork/frontend/util/canvas',
           'paperwork.backend': 'src/paperwork/backend',
           'paperwork.backend.common': 'src/paperwork/backend/common',
           'paperwork.backend.pdf': 'src/paperwork/backend/pdf',
           'paperwork.backend.img': 'src/paperwork/backend/img',
           },
       data_files=[
-          (os.path.join(sys.prefix, 'share/paperwork'), [
-            'src/paperwork/frontend/aboutdialog.glade',
-            'src/paperwork/frontend/doceditdialog.glade',
-            'src/paperwork/frontend/import.glade',
-            'src/paperwork/frontend/import_select.glade',
-            'src/paperwork/frontend/mainwindow.glade',
-            'src/paperwork/frontend/multiscan.glade',
-            'src/paperwork/frontend/pageeditingdialog.glade',
-            'src/paperwork/frontend/settingswindow.glade',
-            'src/paperwork/frontend/labeledit.glade',
-            ]),
+          # glade files
+          (
+              os.path.join(sys.prefix, 'share/paperwork/aboutdialog'),
+              [
+                  'src/paperwork/frontend/aboutdialog/aboutdialog.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/settingswindow'),
+              [
+                  'src/paperwork/frontend/settingswindow/settingswindow.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/doceditdialog'),
+              [
+                  'src/paperwork/frontend/doceditdialog/doceditdialog.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/import'),
+              [
+                  'src/paperwork/frontend/import/importaction.glade',
+                  'src/paperwork/frontend/import/importfileselector.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/labeleditor'),
+              [
+                  'src/paperwork/frontend/labeleditor/labeleditor.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/mainwindow'),
+              [
+                  'src/paperwork/frontend/mainwindow/appmenu.xml',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/mainwindow'),
+              [
+                  'src/paperwork/frontend/mainwindow/mainwindow.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/multiscan'),
+              [
+                  'src/paperwork/frontend/multiscan/multiscan.glade',
+              ]
+          ),
+          (
+              os.path.join(sys.prefix, 'share/paperwork/pageeditor'),
+              [
+                  'src/paperwork/frontend/pageeditor/pageeditor.glade',
+              ]
+          ),
           (os.path.join(sys.prefix, 'share/locale/fr/LC_MESSAGES'),
            ['locale/fr/LC_MESSAGES/paperwork.mo']),
           (os.path.join(sys.prefix, 'share/locale/de/LC_MESSAGES'),
@@ -102,14 +172,20 @@ Let the machine do most of the work.
       ],
       scripts=['scripts/paperwork'],
       install_requires=[
-          "nltk",
+          "Cython",
+          'joblib',
           "Pillow",
           "pycountry",
           # "pycairo",  # doesn't work ?
           "pyenchant",
+          "python-Levenshtein",
+          "pyinsane >= 1.3.8",
+          "pyocr >= 0.2.3",
+          "numpy",
+          "scipy",
+          "scikit-learn",
+          "scikit-image",
           "Whoosh",
-          "pyinsane >= 1.1.0",
-          "pyocr",
           # "PyGObject",  # doesn't work with virtualenv
           # Missing due to the use of gobject introspection:
           # - gtk
@@ -121,8 +197,8 @@ Let the machine do most of the work.
       ],
      )
 
-# look for dependency that setuptools cannot check
-
+# look for dependency that setuptools cannot check or that are too painful to
+# install with setuptools
 print("")
 
 # missing_modules is an array of
@@ -140,6 +216,7 @@ modules = [
          'suse': 'python-gobject',
      },
     ),
+
     ('Gtk', 'gi.repository.Gtk',
      {
          'debian': 'gir1.2-gtk-3.0',
@@ -175,6 +252,7 @@ modules = [
          'suse': 'typelib-1_0-Poppler-0_18',
      },
     ),
+
     ('Cairo', 'cairo',
      {
          'debian': 'python-gi-cairo',
@@ -202,7 +280,7 @@ try:
     print("Looking for OCR tool ...")
     ocr_tools = pyocr.get_available_tools()
 except ImportError:
-    print "Couldn't import Pyocr. Will assume OCR tool is not installed yet"
+    print ("Couldn't import Pyocr. Will assume OCR tool is not installed yet")
     ocr_tools = []
 if len(ocr_tools) > 0:
     print ("Looking for OCR language data ...")
@@ -258,4 +336,4 @@ else:
               % (PACKAGE_TOOLS[distribution],
                  " ".join(pkgs)))
         print("==============================")
-    print("")
+    sys.exit(1)

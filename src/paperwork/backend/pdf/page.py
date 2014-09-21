@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -18,12 +18,12 @@ import cairo
 import codecs
 import os
 import logging
+import pyocr
 import pyocr.builders
-import pyocr.pyocr
 
 from paperwork.backend.common.page import BasicPage
-from paperwork.util import split_words
-from paperwork.util import surface2image
+from paperwork.backend.util import split_words
+from paperwork.backend.util import surface2image
 
 
 # By default, PDF are too small for a good image rendering
@@ -38,11 +38,11 @@ class PdfWordBox(object):
         # XXX(Jflesch): Coordinates seem to come from the bottom left of the
         # page instead of the top left !?
         self.position = ((int(rectangle.x1 * PDF_RENDER_FACTOR),
-                         int((pdf_size[1] - rectangle.y2)
-                             * PDF_RENDER_FACTOR)),
-                        (int(rectangle.x2 * PDF_RENDER_FACTOR),
-                         int((pdf_size[1] - rectangle.y1)
-                             * PDF_RENDER_FACTOR)))
+                          int((pdf_size[1] - rectangle.y2)
+                              * PDF_RENDER_FACTOR)),
+                         (int(rectangle.x2 * PDF_RENDER_FACTOR),
+                          int((pdf_size[1] - rectangle.y1)
+                              * PDF_RENDER_FACTOR)))
 
 
 class PdfLineBox(object):
@@ -51,15 +51,14 @@ class PdfLineBox(object):
         # XXX(Jflesch): Coordinates seem to come from the bottom left of the
         # page instead of the top left !?
         self.position = ((int(rectangle.x1 * PDF_RENDER_FACTOR),
-                         int((pdf_size[1] - rectangle.y2)
-                             * PDF_RENDER_FACTOR)),
-                        (int(rectangle.x2 * PDF_RENDER_FACTOR),
-                         int((pdf_size[1] - rectangle.y1)
-                             * PDF_RENDER_FACTOR)))
+                          int((pdf_size[1] - rectangle.y2)
+                              * PDF_RENDER_FACTOR)),
+                         (int(rectangle.x2 * PDF_RENDER_FACTOR),
+                          int((pdf_size[1] - rectangle.y1)
+                              * PDF_RENDER_FACTOR)))
 
 
 class PdfPage(BasicPage):
-    FILE_PREFIX = "paper."
     EXT_TXT = "txt"
     EXT_BOX = "words"
 
@@ -68,26 +67,27 @@ class PdfPage(BasicPage):
         self.pdf_page = doc.pdf.get_page(page_nb)
         assert(self.pdf_page is not None)
         size = self.pdf_page.get_size()
-        self.size = (int(size[0]), int(size[1]))
+        self._size = (int(size[0]), int(size[1]))
         self.__boxes = None
+        self.__img_cache = {}
+        doc = doc
 
-    def __get_filepath(self, ext):
+    def get_doc_file_path(self):
         """
-        Returns a file path relative to this page
+        Returns the file path of the image corresponding to this page
         """
-        filename = ("%s%d.%s" % (self.FILE_PREFIX, self.page_nb + 1, ext))
-        return os.path.join(self.doc.path, filename)
+        return self.doc.get_pdf_file_path()
 
     def __get_txt_path(self):
-        return self.__get_filepath(self.EXT_TXT)
+        return self._get_filepath(self.EXT_TXT)
 
     def __get_box_path(self):
-        return self.__get_filepath(self.EXT_BOX)
+        return self._get_filepath(self.EXT_BOX)
 
     def __get_last_mod(self):
         try:
             return os.stat(self.__get_txt_path()).st_mtime
-        except OSError, exc:
+        except OSError:
             return 0.0
 
     last_mod = property(__get_last_mod)
@@ -133,7 +133,7 @@ class PdfPage(BasicPage):
                 return self.__boxes
             except IOError, exc:
                 logger.error("Unable to get boxes for '%s': %s"
-                       % (self.doc.docid, exc))
+                             % (self.doc.docid, exc))
                 # will fall back on pdf boxes
         except OSError, exc:  # os.stat() failed
             pass
@@ -156,40 +156,53 @@ class PdfPage(BasicPage):
                 self.__boxes.append(line_box)
         return self.__boxes
 
-    boxes = property(__get_boxes)
+    def __set_boxes(self, boxes):
+        boxfile = self.__get_box_path()
+        with codecs.open(boxfile, 'w', encoding='utf-8') as file_desc:
+            pyocr.builders.LineBoxBuilder().write_file(file_desc, boxes)
+        self.drop_cache()
+        self.doc.drop_cache()
+
+    boxes = property(__get_boxes, __set_boxes)
 
     def __render_img(self, factor):
         # TODO(Jflesch): In a perfect world, we shouldn't use ImageSurface.
         # we should draw directly on the GtkImage.window.cairo_create()
         # context. It would be much more efficient.
 
-        width = int(factor * self.size[0])
-        height = int(factor * self.size[1])
+        if factor not in self.__img_cache:
+            logger.debug('Building img from pdf with factor: %s'
+                         % factor)
+            width = int(factor * self._size[0])
+            height = int(factor * self._size[1])
 
-        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-        ctx = cairo.Context(surface)
-        ctx.scale(factor, factor)
-        self.pdf_page.render(ctx)
-        return surface2image(surface)
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+            ctx = cairo.Context(surface)
+            ctx.scale(factor, factor)
+            self.pdf_page.render(ctx)
+            self.__img_cache[factor] = surface2image(surface)
+        return self.__img_cache[factor]
 
     def __get_img(self):
         return self.__render_img(PDF_RENDER_FACTOR)
 
     img = property(__get_img)
 
-    def _get_thumbnail(self, width):
-        factor = float(width) / self.size[0]
-        return self.__render_img(factor)
+    def __get_size(self):
+        return (self._size[0] * PDF_RENDER_FACTOR,
+                self._size[1] * PDF_RENDER_FACTOR)
 
-    def print_page_cb(self, print_op, print_context):
+    size = property(__get_size)
+
+    def print_page_cb(self, print_op, print_context, keep_refs={}):
         ctx = print_context.get_cairo_context()
 
         logger.debug("Context: %d x %d" % (print_context.get_width(),
-                                    print_context.get_height()))
-        logger.debug("Size: %d x %d" % (self.size[0], self.size[1]))
+                                           print_context.get_height()))
+        logger.debug("Size: %d x %d" % (self._size[0], self._size[1]))
 
-        factor_x = float(print_context.get_width()) / float(self.size[0])
-        factor_y = float(print_context.get_height()) / float(self.size[1])
+        factor_x = float(print_context.get_width()) / float(self._size[0])
+        factor_y = float(print_context.get_height()) / float(self._size[1])
         factor = min(factor_x, factor_y)
 
         logger.debug("Scale: %f x %f --> %f" % (factor_x, factor_y, factor))
@@ -198,26 +211,3 @@ class PdfPage(BasicPage):
 
         self.pdf_page.render_for_printing(ctx)
         return None
-
-    def redo_ocr(self, langs):
-        img = self.img
-        txtfile = self.__get_txt_path()
-        boxfile = self.__get_box_path()
-
-        ocr_tools = pyocr.pyocr.get_available_tools()
-        if len(ocr_tools) <= 0:
-            # shouldn't happen: scan buttons should be disabled
-            # in that case
-            raise Exception("No OCR tool available")
-
-        txt = ocr_tools[0].image_to_string(img, lang=langs['ocr'])
-        builder = pyocr.builders.LineBoxBuilder()
-        boxes = ocr_tools[0].image_to_string(img, lang=langs['ocr'],
-                                             builder=builder)
-
-        # save the text
-        with codecs.open(txtfile, 'w', encoding='utf-8') as file_desc:
-            file_desc.write(txt)
-        # save the boxes
-        with codecs.open(boxfile, 'w', encoding='utf-8') as file_desc:
-            pyocr.builders.LineBoxBuilder.write_file(file_desc, boxes)

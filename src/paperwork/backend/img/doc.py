@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #    Copyright (C) 2012  Sebastien Maccagnoni-Munch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
@@ -18,25 +18,20 @@
 Code for managing documents (not page individually ! see page.py for that)
 """
 
-import codecs
-import datetime
 import errno
 import os
 import os.path
-import time
 import logging
 
 import cairo
-from gi.repository import Gio
 import PIL.Image
 from gi.repository import Poppler
 
 from paperwork.backend.common.doc import BasicDoc
 from paperwork.backend.img.page import ImgPage
-from paperwork.util import dummy_progress_cb
-from paperwork.util import surface2image
-from paperwork.util import image2surface
-from paperwork.util import mkdir_p
+from paperwork.backend.util import image2surface
+from paperwork.backend.util import surface2image
+from paperwork.backend.util import mkdir_p
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +140,7 @@ class ImgToPdfDocExporter(object):
 
 
 class _ImgPagesIterator(object):
+
     """
     Iterates on a page list
     """
@@ -168,6 +164,7 @@ class _ImgPagesIterator(object):
 
 
 class _ImgPages(object):
+
     """
     Page list. Page are accessed using [] operator.
     """
@@ -199,6 +196,7 @@ class _ImgPages(object):
 
 
 class ImgDoc(BasicDoc):
+
     """
     Represents a document (aka a set of pages + labels).
     """
@@ -230,14 +228,14 @@ class ImgDoc(BasicDoc):
             file_last_mod = os.stat(labels_path).st_mtime
             if file_last_mod > last_mod:
                 last_mod = file_last_mod
-        except OSError, err:
+        except OSError:
             pass
         extra_txt_path = os.path.join(self.path, BasicDoc.EXTRA_TEXT_FILE)
         try:
             file_last_mod = os.stat(extra_txt_path).st_mtime
             if file_last_mod > last_mod:
                 last_mod = file_last_mod
-        except OSError, err:
+        except OSError:
             pass
         return last_mod
 
@@ -268,64 +266,17 @@ class ImgDoc(BasicDoc):
             return count
         except OSError, exc:
             if exc.errno != errno.ENOENT:
-                logging.error("Exception while trying to get the number of pages of "
-                       "'%s': %s" % (self.docid, exc))
+                logging.error("Exception while trying to get the number of"
+                              " pages of '%s': %s" % (self.docid, exc))
                 raise
             return 0
 
-    def __add_img(self, img, langs=None, resolution=0,
-                  scanner_calibration=None,
-                  callback=dummy_progress_cb):
-        try:
-            os.makedirs(self.path)
-        except OSError:
-            pass
-
-        page_nb = self.nb_pages
-        page = ImgPage(self, page_nb)
-        page.make(img, langs, resolution,
-                  scanner_calibration, callback)
-
-    def scan_single_page(self, scan_src, resolution,
-                         scanner_calibration, langs=None,
-                         callback=dummy_progress_cb):
-        """
-        Scan a new page and append it as the last page of the document
-
-        Arguments:
-            scan_src --- see pyinsane.abstract_th.Scanner
-            langs --- Languages to specify to the OCR tool and the
-                spellchecker: { 'ocr' : 'fra', 'spelling' : 'fr' }
-            callback -- Progression indication callback (see
-                util.dummy_progress_cb for the arguments to expected)
-        """
-        callback(0, 100, ImgPage.SCAN_STEP_SCAN)
-        nb_pages = scan_src.get_nb_img()
-        try:
-            while True:
-                scan_src.read()
-                time.sleep(0)
-        except EOFError:
-            pass
-        img = scan_src.get_img(nb_pages)
-        callback(0, 100, ImgPage.SCAN_STEP_SCAN)
-        self.__add_img(img, langs, resolution, scanner_calibration, callback)
-        self.drop_cache()
-
-    def import_image(self, file_uri, langs):
-        # TODO(Jflesch): Use Gio
-        if file_uri.startswith("file://"):
-            file_uri = file_uri[len("file://"):]
-        img = PIL.Image.open(file_uri)
-        self.__add_img(img, langs)
-        self.drop_cache()
-
-    def print_page_cb(self, print_op, print_context, page_nb):
+    def print_page_cb(self, print_op, print_context, page_nb, keep_refs={}):
         """
         Called for printing operation by Gtk
         """
         page = ImgPage(self, page_nb)
-        page.print_page_cb(print_op, print_context)
+        page.print_page_cb(print_op, print_context, keep_refs=keep_refs)
 
     @staticmethod
     def get_export_formats():
@@ -341,8 +292,6 @@ class ImgDoc(BasicDoc):
         if page.doc == self:
             return
         mkdir_p(self.path)
-        other_doc = page.doc
-        other_doc_nb_pages = page.doc.nb_pages
 
         new_page = ImgPage(self, self.nb_pages)
         logger.info("%s --> %s" % (str(page), str(new_page)))
@@ -355,6 +304,24 @@ class ImgDoc(BasicDoc):
         del(self.__pages)
         self.__pages = None
 
+    def get_docfilehash(self):
+        if self._get_nb_pages() == 0:
+            print "WARNING: Document %s is empty" % self.docid
+            dochash = ''
+        else:
+            dochash = 0
+            for page in self.pages:
+                dochash ^= page.get_docfilehash()
+        return dochash
+
+    def add_page(self, img, boxes):
+        mkdir_p(self.path)
+        page = ImgPage(self, self.nb_pages)
+        page.img = img
+        page.boxes = boxes
+        self.drop_cache()
+        return self.pages[-1]
+
 
 def is_img_doc(docpath):
     if not os.path.isdir(docpath):
@@ -362,9 +329,11 @@ def is_img_doc(docpath):
     try:
         filelist = os.listdir(docpath)
     except OSError, exc:
-        logging.warn("Warning: Failed to list files in %s: %s" % (docpath, str(exc)))
+        logging.warn("Warning: Failed to list files in %s: %s"
+                     % (docpath, str(exc)))
         return False
     for filename in filelist:
-        if ".jpg" in filename.lower():
+        if (filename.lower().endswith(ImgPage.EXT_IMG)
+                and not filename.lower().endswith(ImgPage.EXT_THUMB)):
             return True
     return False

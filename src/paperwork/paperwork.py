@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -21,16 +21,15 @@ Bootstrapping code
 import os
 
 import gettext
-import logging
 from gi.repository import GObject
 from gi.repository import Gtk
+from gi.repository import GLib
 import locale
+import logging
+import signal
 
-import pyocr.pyocr
-import pyinsane.abstract_th  # Just to start the Sane thread
-
-from frontend import mainwindow
-from backend.config import PaperworkConfig
+from frontend.mainwindow import ActionRefreshIndex, MainWindow
+from frontend.util.config import load_config
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +64,7 @@ def set_locale():
             got_locales = True
             break
     if not got_locales:
-        logger.warn("WARNING: Locales not found")
+        logger.warning("WARNING: Locales not found")
     else:
         for module in (gettext, locale):
             module.bindtextdomain('paperwork', locales_path)
@@ -74,16 +73,16 @@ def set_locale():
 
 def init_logging():
     formatter = logging.Formatter(
-            '%(levelname)-6s %(name)-30s %(message)s')
+        '%(levelname)-6s %(name)-30s %(message)s')
     handler = logging.StreamHandler()
     logger = logging.getLogger()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel({
-        "DEBUG" : logging.DEBUG,
-        "INFO" : logging.INFO,
-        "WARNING" : logging.WARNING,
-        "ERROR" : logging.ERROR,
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
     }[os.getenv("PAPERWORK_VERBOSE", "INFO")])
 
 
@@ -91,18 +90,30 @@ def main():
     """
     Where everything start.
     """
+
     init_logging()
     set_locale()
 
     GObject.threads_init()
 
+    if hasattr(GLib, "unix_signal_add"):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT,
+                             Gtk.main_quit, None)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM,
+                             Gtk.main_quit, None)
+
     try:
-        config = PaperworkConfig()
+        config = load_config()
         config.read()
 
-        main_win = mainwindow.MainWindow(config)
-        mainwindow.ActionRefreshIndex(main_win, config).do()
+        main_win = MainWindow(config)
+        ActionRefreshIndex(main_win, config).do()
         Gtk.main()
+
+        for scheduler in main_win.schedulers.values():
+            scheduler.stop()
+
+        config.write()
     finally:
         logger.info("Good bye")
 

@@ -1,5 +1,5 @@
 #    Paperwork - Using OCR to grep dead trees the easy way
-#    Copyright (C) 2012  Jerome Flesch
+#    Copyright (C) 2012-2014  Jerome Flesch
 #
 #    Paperwork is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@ import os
 import shutil
 import logging
 
-import gi
 from gi.repository import GLib
 from gi.repository import Gio
 from gi.repository import Poppler
@@ -28,7 +27,6 @@ from paperwork.backend.pdf.page import PdfPage
 
 
 PDF_FILENAME = "doc.pdf"
-PDF_IMPORT_MIN_KEYWORDS = 5
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +81,8 @@ class PdfPages(object):
         self.page = {}
 
     def __getitem__(self, idx):
+        if idx < 0:
+            idx = self.pdfdoc.nb_pages + idx
         if idx not in self.page:
             self.page[idx] = PdfPage(self.pdfdoc, idx)
         return self.page[idx]
@@ -115,19 +115,22 @@ class PdfDoc(BasicDoc):
             file_last_mod = os.stat(labels_path).st_mtime
             if file_last_mod > last_mod:
                 last_mod = file_last_mod
-        except OSError, err:
+        except OSError:
             pass
         extra_txt_path = os.path.join(self.path, BasicDoc.EXTRA_TEXT_FILE)
         try:
             file_last_mod = os.stat(extra_txt_path).st_mtime
             if file_last_mod > last_mod:
                 last_mod = file_last_mod
-        except OSError, err:
+        except OSError:
             pass
 
         return last_mod
 
     last_mod = property(__get_last_mod)
+
+    def get_pdf_file_path(self):
+        return ("%s/%s" % (self.path, PDF_FILENAME))
 
     def _open_pdf(self):
         self.__pdf = Poppler.Document.new_from_file(
@@ -152,14 +155,18 @@ class PdfDoc(BasicDoc):
 
     def _get_nb_pages(self):
         if self.__pdf is None:
+            if self.is_new:
+                # happens when a doc was recently deleted
+                return 0
             self._open_pdf()
         return self.__nb_pages
 
-    def print_page_cb(self, print_op, print_context, page_nb):
+    def print_page_cb(self, print_op, print_context, page_nb, keep_refs={}):
         """
         Called for printing operation by Gtk
         """
-        self.pages[page_nb].print_page_cb(print_op, print_context)
+        self.pages[page_nb].print_page_cb(print_op, print_context,
+                                          keep_refs=keep_refs)
 
     def import_pdf(self, config, file_uri):
         logger.info("PDF: Importing '%s'" % (file_uri))
@@ -168,20 +175,13 @@ class PdfDoc(BasicDoc):
             dest.make_directory(None)
         except GLib.GError, exc:
             logger.exception("Warning: Error while trying to create '%s': %s"
-                    % (self.path, exc))
+                             % (self.path, exc))
         f = Gio.File.parse_name(file_uri)
         dest = dest.get_child(PDF_FILENAME)
         f.copy(dest,
                0,  # TODO(Jflesch): Missing flags: don't keep attributes
                None, None, None)
         self._open_pdf()
-        nb_keywords = 0
-        for keyword in self.keywords:
-            nb_keywords += 1
-            if nb_keywords >= PDF_IMPORT_MIN_KEYWORDS:
-                break
-        if nb_keywords < PDF_IMPORT_MIN_KEYWORDS:
-            self.redo_ocr(config.langs)
 
     @staticmethod
     def get_export_formats():
@@ -197,6 +197,9 @@ class PdfDoc(BasicDoc):
         del(self.__pages)
         self.__pages = None
 
+    def get_docfilehash(self):
+        return BasicDoc.hash_file("%s/%s" % (self.path, PDF_FILENAME))
+
 
 def is_pdf_doc(docpath):
     if not os.path.isdir(docpath):
@@ -205,6 +208,6 @@ def is_pdf_doc(docpath):
         filelist = os.listdir(docpath)
     except OSError, exc:
         logger.exception("Warning: Failed to list files in %s: %s"
-                % (docpath, str(exc)))
+                         % (docpath, str(exc)))
         return False
     return PDF_FILENAME in filelist
