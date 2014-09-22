@@ -1,1 +1,2 @@
 0001-setup.py-don-t-fail-if-runtime-dependencies-are-miss.patch
+0002-frontend-fix-bug-in-locale-detection.patch
