@@ -1,0 +1,19 @@
+From: =?utf-8?q?Paul_Lie=CC=81tar?= <paul@lietar.net>
+Date: Mon, 22 Sep 2014 14:01:53 +0200
+Subject: =?utf-8?q?setup=2Epy=3A_don=E2=80=99t_fail_if_runtime_dependencie?=
+ =?utf-8?q?s_are_missing?=
+
+---
+ setup.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/setup.py b/setup.py
+index 29e9818..779f43c 100755
+--- a/setup.py
++++ b/setup.py
+@@ -336,4 +336,4 @@ else:
+               % (PACKAGE_TOOLS[distribution],
+                  " ".join(pkgs)))
+         print("==============================")
+-    sys.exit(1)
++
