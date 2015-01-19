@@ -9,10 +9,9 @@ Instructions to use this overlay are available on
 
 ## Runtime dependencies
 
-Optional:
-Spell checking is used to improve page orientation detection, so:
+Some dependencies cannot be installed automatically. You can find all the missing dependencies by running 'paperwork-chkdeps'
 
-    $ sudo emerge -av aspell-<your language>
+    $ paperwork-chkdeps
 
 
 ## Running Paperwork

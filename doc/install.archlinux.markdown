@@ -10,7 +10,6 @@ If there is a problem with the package, please report it on
 Please do **not** report issue with packages on Paperwork's bugtracker. It is
 **not** possible to assign issues to package maintainer on the bugtracker.
 
-
 ## Manual installation
 
 See the [Fedora](install.fedora.markdown) or [Debian](install.debian.markdown) installation
@@ -22,6 +21,28 @@ So you must replace the following commands:
 
 * pip / python-pip --> pip2.7
 * python --> python2.7
+
+
+## Runtime dependencies
+
+### Paperwork &gt;= 0.2.1
+
+Once installed, please run 'paperwork-chkdeps' to make sure all the required depencies are installed.
+
+### Paperwork &lt;= 0.2.0
+
+Some dependencies cannot be installed automatically, because they depend on your language:
+
+You need an OCR tool. You can use Tesseract or Cuneiform. For now,
+[Tesseract is strongly recommended](https://github.com/jflesch/pyocr/issues/2):
+
+    $ sudo pacman -S tesseract tesseract-data-<your language>
+
+Optional, but strongly recommended:
+Spell checking is used to improve page orientation detection, so:
+
+    $ sudo pacman -S aspell-<your language>
+
 
 
 ## Running Paperwork

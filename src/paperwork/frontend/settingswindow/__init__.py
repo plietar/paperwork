@@ -17,6 +17,7 @@
 Settings window.
 """
 
+import platform
 import os
 import sys
 import time
@@ -25,6 +26,7 @@ import gettext
 from gi.repository import GLib
 from gi.repository import GObject
 from gi.repository import Gdk
+from gi.repository import Gtk
 import logging
 import pycountry
 import pyinsane.abstract_th as pyinsane
@@ -159,7 +161,10 @@ class JobSourceFinder(Job):
                         % (self.__devid))
             device = pyinsane.Scanner(name=self.__devid)
             sys.stdout.flush()
-            sources = device.options['source'].constraint
+            if 'source' in device.options:
+                sources = device.options['source'].constraint
+            else:
+                sources = []
             logger.info("Sources found: %s" % str(sources))
             sys.stdout.flush()
             for source in sources:
@@ -243,7 +248,10 @@ class JobResolutionFinder(Job):
                         % (self.__devid))
             device = pyinsane.Scanner(name=self.__devid)
             sys.stdout.flush()
-            resolutions = device.options['resolution'].constraint
+            if 'resolution' in device.options:
+                resolutions = device.options['resolution'].constraint
+            else:
+                resolutions = []
             logger.info("Resolutions found: %s" % str(resolutions))
             sys.stdout.flush()
             # Sometimes sane return the resolutions as a integer array,
@@ -509,7 +517,7 @@ class ActionApplySettings(SimpleAction):
 
     def do(self):
         need_reindex = False
-        workdir = self.__settings_win.workdir_chooser.get_current_folder()
+        workdir = self.__settings_win.workdir_chooser.get_filename()
         if workdir != self.__config['workdir'].value:
             self.__config['workdir'].value = workdir
             need_reindex = True
@@ -616,6 +624,16 @@ class SettingsWindow(GObject.GObject):
 
         widget_tree = load_uifile(
             os.path.join("settingswindow", "settingswindow.glade"))
+
+        distrib = platform.dist()
+        if distrib:
+            distrib = distrib[0].lower()
+            logger.info("Distribution: [%s]" % distrib)
+            for widget in widget_tree.get_objects():
+                if type(widget) == Gtk.LinkButton:
+                    uri = widget.get_uri()
+                    uri += "#" + distrib
+                    widget.set_uri(uri)
 
         self.window = widget_tree.get_object("windowSettings")
         self.window.set_transient_for(mainwindow_gui)

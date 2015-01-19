@@ -210,7 +210,7 @@ class _PaperworkFrontendConfigUtil(object):
 
         default_locale_long = locale.getdefaultlocale()[0]
         if default_locale_long is None:
-            return self.DEFAULT_OCR_LANG
+            return DEFAULT_OCR_LANG
 
         # Usually something like "fr_FR" --> we just need the first part
         default_locale = default_locale_long.split("_")[0]
@@ -222,7 +222,7 @@ class _PaperworkFrontendConfigUtil(object):
         except Exception, exc:
             logger.error("Warning: Failed to figure out system language"
                          " (locale is [%s]). Will default to %s"
-                         % (default_locale_long, self.DEFAULT_OCR_LANG))
+                         % (default_locale_long, DEFAULT_OCR_LANG))
             logger.error('Exception was: %s' % exc)
         return DEFAULT_OCR_LANG
 
@@ -293,41 +293,56 @@ def get_scanner(config, preferred_sources=None):
     config_source = config['scanner_source'].value
     use_config_source = False
 
-    if preferred_sources:
-        use_config_source = False
-        regexs = [re.compile(x, flags=re.IGNORECASE) for x in preferred_sources]
-        for regex in regexs:
-            if regex.match(config_source):
-                use_config_source = True
-                break
+    if not 'source' in dev.options:
+        logger.warning("Can't set the source on this scanner. Option not found")
+    else:
+        if preferred_sources:
+            use_config_source = False
+            regexs = [
+                re.compile(x, flags=re.IGNORECASE)
+                for x in preferred_sources
+            ]
+            for regex in regexs:
+                if regex.match(config_source):
+                    use_config_source = True
+                    break
 
-    if not use_config_source and preferred_sources:
-        try:
-            set_scanner_opt('source', dev.options['source'], preferred_sources)
-        except (KeyError, pyinsane.SaneException), exc:
-            config_source = config['scanner_source'].value
-            logger.error("Warning: Unable to set scanner source to '%s': %s"
-                         % (preferred_sources, exc))
+        if not use_config_source and preferred_sources:
+            try:
+                set_scanner_opt('source', dev.options['source'], preferred_sources)
+            except (KeyError, pyinsane.SaneException), exc:
+                config_source = config['scanner_source'].value
+                logger.error("Warning: Unable to set scanner source to '%s': %s"
+                            % (preferred_sources, exc))
+                if dev.options['source'].capabilities.is_active():
+                    dev.options['source'].value = config_source
+        else:
             if dev.options['source'].capabilities.is_active():
                 dev.options['source'].value = config_source
-    else:
-        if dev.options['source'].capabilities.is_active():
-            dev.options['source'].value = config_source
-        logger.info("Will scan using source %s" % str(config_source))
+            logger.info("Will scan using source %s" % str(config_source))
 
-    try:
-        dev.options['resolution'].value = resolution
-    except pyinsane.SaneException:
-        logger.warning("Unable to set scanner resolution to %d: %s"
-                       % (resolution, exc))
-    if dev.options['mode'].capabilities.is_active():
-        if "Color" in dev.options['mode'].constraint:
-            dev.options['mode'].value = "Color"
-            logger.info("Scanner mode set to 'Color'")
-        elif "Gray" in dev.options['mode'].constraint:
-            dev.options['mode'].value = "Gray"
-            logger.info("Scanner mode set to 'Gray'")
-        else:
-            logger.warning("Unable to set scanner mode ! May be 'Lineart'")
+    if not 'resolution' in dev.options:
+        logger.warning("Can't set the resolution on this scanner."
+                       " Option not found")
+    else:
+        try:
+            dev.options['resolution'].value = resolution
+        except pyinsane.SaneException:
+            logger.warning("Unable to set scanner resolution to %d: %s"
+                        % (resolution, exc))
+
+    if not 'mode' in dev.options:
+        logger.warning("Can't set the mode on this scanner. Option not found")
+    else:
+        if dev.options['mode'].capabilities.is_active():
+            if "Color" in dev.options['mode'].constraint:
+                dev.options['mode'].value = "Color"
+                logger.info("Scanner mode set to 'Color'")
+            elif "Gray" in dev.options['mode'].constraint:
+                dev.options['mode'].value = "Gray"
+                logger.info("Scanner mode set to 'Gray'")
+            else:
+                logger.warning("Unable to set scanner mode ! May be 'Lineart'")
+
     maximize_scan_area(dev)
     return (dev, resolution)
