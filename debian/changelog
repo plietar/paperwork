@@ -1,3 +1,14 @@
+paperwork (0.2.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/control: bump Standards-Version to 3.9.6
+  * debian/patches: remove patches which have been upstreamed.
+  * debian/pydist-overrides: Add mapping for pyocr and pyinsane.
+  * debian/patches: do not install paperwork-chkdeps
+  * debian/patches: Add Keywords field to desktop file.
+
+ -- Paul Liétar <paul@lietar.net>  Sun, 01 Mar 2015 23:34:21 +0000
+
 paperwork (0.2-1) unstable; urgency=medium
 
   * New upstream release
