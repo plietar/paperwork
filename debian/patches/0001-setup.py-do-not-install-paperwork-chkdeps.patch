@@ -1,0 +1,22 @@
+From: =?utf-8?q?Paul_Li=C3=A9tar?= <paul@lietar.net>
+Date: Mon, 23 Feb 2015 16:57:45 +0000
+Description: setup.py: do not install paperwork-chkdeps
+ We do not need it on debian since all dependencies are handled by dpkg.
+Forwarded: not-needed
+Origin: vendor
+---
+ setup.py | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/setup.py b/setup.py
+index cd9335e..6bbd482 100755
+--- a/setup.py
++++ b/setup.py
+@@ -151,7 +151,6 @@ setup(
+     ],
+     scripts=[
+         'scripts/paperwork',
+-        'scripts/paperwork-chkdeps',
+     ],
+     install_requires=[
+         "Cython",
