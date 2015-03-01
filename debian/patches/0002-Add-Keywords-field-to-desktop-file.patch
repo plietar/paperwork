@@ -1,0 +1,17 @@
+From: =?utf-8?q?Paul_Li=C3=A9tar?= <paul@lietar.net>
+Date: Sun, 1 Mar 2015 23:17:05 +0000
+Subject: Add Keywords field to desktop file.
+
+---
+ data/paperwork.desktop | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/data/paperwork.desktop b/data/paperwork.desktop
+index 4da2779..bb1e29c 100644
+--- a/data/paperwork.desktop
++++ b/data/paperwork.desktop
+@@ -7,3 +7,4 @@ Comment=Make dead trees grepable
+ Exec=paperwork
+ Name=Paperwork
+ Icon=paperwork
++Keywords=document;scanner;ocr;
